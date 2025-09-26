@@ -1,3 +1,6 @@
+const rooms = new Map<string, Set<string>>();
+const peers = new Map<string, {socket: any, roomId: string, name: string}>();
+
 let checkJoinReq = false;
 const server = Bun.serve({
     port: 8080,
@@ -29,13 +32,33 @@ const server = Bun.serve({
         },
         message(ws, message) {
             const recievedMessage = JSON.stringify(message);
-            if(recievedMessage.includes("join")) {
-                checkJoinReq = true;
-                ws.send(`join request recieved`);
+            if(!recievedMessage.includes("join")) {
+                ws.close();
+                console.log("ws closed");
+            }
+            checkJoinReq = true;
+            ws.send(`join request recieved`);
+            if(!recievedMessage.includes("roomId") || !recievedMessage.includes("peerId") || !recievedMessage.includes("name")){
+                ws.send(`{ "type": "error", "message": "Invalid join message" }`)
+                ws.close();
+                console.log("ws closed");
                 return;
             }
-            ws.close();
-            console.log("ws closed");
+            const msg = JSON.parse(recievedMessage);
+            if(!rooms.has(msg.roomId)){
+                rooms.set(msg.roomId, new Set());
+                console.log("new room created");
+            }else{
+                console.log("Room already exists");
+            }
+            rooms.get(msg.roomId)?.add(msg.peerId);
+            peers.set(msg.peerId, {socket: ws, roomId: msg.roomId, name: msg.name});
+            ws.send(`{ type: "joined", peers: ${peers}}`);
+            peers.forEach((e)=>{
+                if(e.roomId === msg.roomId){
+                    ws.send(`{ type: "new-peer", peer: { ${msg.peerId}, ${msg.name} } }`);
+                }
+            })
         }
     }
 })
