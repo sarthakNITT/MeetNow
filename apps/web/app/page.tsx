@@ -1,102 +1,108 @@
-import Image, { type ImageProps } from "next/image";
-import { Button } from "@repo/ui/button";
-import styles from "./page.module.css";
+"use client"
+import { parse } from "path";
+import React, { useRef, useState } from "react";
 
-type Props = Omit<ImageProps, "src"> & {
-  srcLight: string;
-  srcDark: string;
-};
+export default function Home () {
+  const [roomId, setRoomId] = useState("");
+  const [myPeerId, setMyPeerId] = useState("");
+  
+  const socketRef = useRef<WebSocket | null>(null);
+  
+  async function handleConnection () {
+    console.log(`Called handleConnection function`);
+    const socket = new WebSocket("ws://localhost:8080");
+    socketRef.current = socket;
+    socket.onmessage = (event: any) => {
+      console.log(event.data);
+    }
+    socket.addEventListener("open", () => {
+      console.log(`WebSocket connection opened`);
+      const message = JSON.stringify({
+        type: "success",
+        value: "connection successfull"
+      })
+      socket.send(message);
+    })
+    socket.onmessage = (event: any) => {
+      const data = JSON.parse(event.data);
+      if (data.type === "connection") {
+        setMyPeerId(data.value);
+        console.log(`My peer ID: ${data.value}`);
+      }
+    }
+  }
+  
+  async function handleCreateRoom () {
+    console.log(`Called handleCreateRoom function`);
+    if (!socketRef.current) {
+      console.log("Socket not connected. Please connect first.");
+      return;
+    }
+    console.log(1);
+    const message = JSON.stringify({
+      "type": "join", 
+      "roomId": "ROOM123",
+      "peerId": myPeerId,
+      "name": "Sarthak"
+    })
+    console.log(2);
+    socketRef.current.send(message);
+    socketRef.current.onmessage = (event: any) => {
+      console.log(event.data);
+    }
+    console.log(3);
+  }
 
-const ThemeImage = (props: Props) => {
-  const { srcLight, srcDark, ...rest } = props;
-
+  async function handleJoinRoom () {
+    if (!socketRef.current) {
+      console.log("Socket not connected. Please connect first.");
+      return;
+    }
+    console.log(1);
+    const message = JSON.stringify({
+      "type": "join", 
+      "roomId": `${roomId}`,
+      "peerId": myPeerId,
+      "name": "Aarav"
+    })
+    socketRef.current.send(message);
+    socketRef.current.onmessage = async (event: any) => {
+      console.log(event.data);
+      const parsedData = JSON.parse(event.data);
+      if(parsedData.type === "new-peer"){
+        parsedData.roomInfo[0].peers.forEach( async(peer: any) => {
+          const peerConnection = new RTCPeerConnection();
+          const gumStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: true,
+          });
+          for (const track of gumStream.getTracks()) {
+            peerConnection.addTrack(track);
+            peerConnection
+            .createOffer()
+            .then((offer) => peerConnection.setLocalDescription(offer))
+            .then(() => {
+              socketRef.current?.send(JSON.stringify({
+                "type": "offer",
+                "from": myPeerId,
+                "to": peer.peerId,
+                "sdp": `${peerConnection.localDescription?.sdp}`
+              }));
+            })
+            .catch((reason) => {
+              console.log(reason);
+            });
+          }
+        })
+      }
+    }
+  }
   return (
-    <>
-      <Image {...rest} src={srcLight} className="imgLight" />
-      <Image {...rest} src={srcDark} className="imgDark" />
-    </>
-  );
-};
-
-export default function Home() {
-  return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <ThemeImage
-          className={styles.logo}
-          srcLight="turborepo-dark.svg"
-          srcDark="turborepo-light.svg"
-          alt="Turborepo logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol>
-          <li>
-            Get started by editing <code>apps/web/app/page.tsx</code>
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new/clone?demo-description=Learn+to+implement+a+monorepo+with+a+two+Next.js+sites+that+has+installed+three+local+packages.&demo-image=%2F%2Fimages.ctfassets.net%2Fe5382hct74si%2F4K8ZISWAzJ8X1504ca0zmC%2F0b21a1c6246add355e55816278ef54bc%2FBasic.png&demo-title=Monorepo+with+Turborepo&demo-url=https%3A%2F%2Fexamples-basic-web.vercel.sh%2F&from=templates&project-name=Monorepo+with+Turborepo&repository-name=monorepo-turborepo&repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fturborepo%2Ftree%2Fmain%2Fexamples%2Fbasic&root-directory=apps%2Fdocs&skippable-integrations=1&teamSlug=vercel&utm_source=create-turbo"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            href="https://turborepo.com/docs?utm_source"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={styles.secondary}
-          >
-            Read our docs
-          </a>
-        </div>
-        <Button appName="web" className={styles.secondary}>
-          Open alert
-        </Button>
-      </main>
-      <footer className={styles.footer}>
-        <a
-          href="https://vercel.com/templates?search=turborepo&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          href="https://turborepo.com?utm_source=create-turbo"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to turborepo.com →
-        </a>
-      </footer>
+    <div className="gap-2 flex">
+      <button className="border-[1px] p-2 rounded" onClick={handleConnection}>Click to connect to ws server</button>
+      <button className="border-[1px] p-2 rounded" onClick={handleCreateRoom}>Click to create room</button>
+      <input className="border-[1px] p-2 rounded" placeholder="Enter room id" value={roomId} onChange={(e)=>setRoomId(e.target.value)} type="text" />
+      <button className="border-[1px] p-2 rounded" onClick={handleJoinRoom}>Click to join room</button>
     </div>
-  );
+  )
 }

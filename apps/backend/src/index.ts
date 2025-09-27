@@ -28,8 +28,8 @@ Bun.serve({
             }
             console.log(`SocketId: ${socketId}`);
             ws.send(JSON.stringify({
-                type: "connection",
-                value: `${socketId}`
+                "type": "connection",
+                "value": `${socketId}`
             }))
             setTimeout(() => {
                 if(!checkJoinReq){
@@ -38,48 +38,76 @@ Bun.serve({
                     return;
                 }
             }, 10000);
-        }, message (ws, message: string) {
-            const msg = JSON.parse(message);
-            if(msg.type === "join"){
-                checkJoinReq = true;
-                console.log(`Join request recieved`);
-                if(!msg.roomId || !msg.peerId || !msg.name){
-                    console.log(`Incorrect message type`);
-                    return;
-                }
-                const checkExistingRoom = rooms.filter((e)=>e.roomId === msg.roomId);
-                console.log(`rooms: ${checkExistingRoom}`);
-                if(checkExistingRoom.length === 0){
-                    console.log(`Creating room`);
-                    rooms.push({
-                        roomId: msg.roomId,
-                        peers: [{
-                            peerSocket: ws,
-                            peerId: msg.peerId,
-                            peerName: msg.name
-                        }]
-                    })
-                }else{
-                    console.log(`Room already exists, adding peer`);
-                    const existingRoom = rooms.find(room => room.roomId === msg.roomId);
-                    if(existingRoom){
-                        existingRoom.peers.push({
-                            peerSocket: ws,
-                            peerId: msg.peerId,
-                            peerName: msg.name
-                        });
-                        existingRoom.peers.forEach((peer)=>{
-                            peer.peerSocket.send(JSON.stringify({
-                                type: "new-peer",
-                                value: `peerId: ${msg.peerId}, peerName: ${msg.name}`
-                            }))
+        }, 
+        message (ws, message: string) {
+            console.log(message);
+            try {
+                const msg = JSON.parse(message);
+                if(msg.type === "join"){
+                    checkJoinReq = true;
+                    console.log(`Join request recieved`);
+                    if(!msg.roomId || !msg.peerId || !msg.name){
+                        console.log(`Incorrect message type`);
+                        return;
+                    }
+                    const checkExistingRoom = rooms.filter((e)=>e.roomId === msg.roomId);
+                    console.log(`rooms: ${checkExistingRoom}`);
+                    if(checkExistingRoom.length === 0){
+                        console.log(`Creating room`);
+                        rooms.push({
+                            roomId: msg.roomId,
+                            peers: [{
+                                peerSocket: ws,
+                                peerId: msg.peerId,
+                                peerName: msg.name
+                            }]
                         })
+                        ws.send(JSON.stringify({
+                            "type": "JoinRequest",
+                            "value": "Joined room",
+                            "roomId": `${msg.roomId}`
+                        }))
+                    }else{
+                        console.log(`Room already exists, adding peer`);
+                        const existingRoom = rooms.find(room => room.roomId === msg.roomId);
+                        if(existingRoom){
+                            existingRoom.peers.push({
+                                peerSocket: ws,
+                                peerId: msg.peerId,
+                                peerName: msg.name
+                            });
+                            existingRoom.peers.forEach(async (peer)=>{
+                                peer.peerSocket.send(JSON.stringify({
+                                    "type": "new-peer",
+                                    "value": `peerId: ${msg.peerId}, peerName: ${msg.name}`,
+                                    "roomId": `${msg.roomId}`,
+                                    "roomInfo": rooms
+                                }))
+                            })
+                        }
                     }
                 }
+                if(msg.type === "offer"){
+                    const targetPeerId = msg.to;
+                    for(const room of rooms){
+                        const targetPeer = room.peers.find(peer => peer.peerId === targetPeerId);
+                        if(targetPeer){
+                            targetPeer.peerSocket.send(JSON.stringify({
+                                "type": "offer",
+                                "from": msg.from,
+                                "sdp": msg.sdp
+                            }));
+                            break;
+                        }
+                    }
+                }
+            } catch (error) {
+                console.log(`JSON Parse error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                console.log(`Received message: ${message}`);
                 ws.send(JSON.stringify({
-                    type: "JoinRequest",
-                    value: "Joined room"
-                }))
+                    "type": "error",
+                    "value": "Invalid JSON message format"
+                }));
             }
         }
     }
