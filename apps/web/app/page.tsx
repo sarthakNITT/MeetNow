@@ -1,20 +1,72 @@
 "use client"
-import { parse } from "path";
 import React, { useRef, useState } from "react";
 
 export default function Home () {
   const [roomId, setRoomId] = useState("");
   const [myPeerId, setMyPeerId] = useState("");
+  const [currentRoomId, setCurrentRoomId] = useState("");
   
   const socketRef = useRef<WebSocket | null>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  
+  async function handleIncomingOffer(data: any) {
+    const peerConnection = new RTCPeerConnection();
+    peerConnectionRef.current = peerConnection;
+    const gumStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    for (const track of gumStream.getTracks()) {
+      peerConnection.addTrack(track);
+    }
+    await peerConnection.setRemoteDescription({ type: 'offer', sdp: data.sdp });
+    const answer = await peerConnection.createAnswer();
+    await peerConnection.setLocalDescription(answer);
+    socketRef.current?.send(JSON.stringify({
+      type: "answer",
+      from: myPeerId,
+      to: data.from,
+      roomId: currentRoomId,
+      sdp: answer.sdp
+    }));
+  }
+
+  async function handleIncomingAnswer (data: any) {
+    await peerConnectionRef.current?.setRemoteDescription({ type: 'answer', sdp: data.sdp })
+  }
+  
+  async function handleNewPeer(data: any) {
+    const newPeerId = data.value.split('peerId: ')[1].split(',')[0];
+    const newPeerName = data.value.split('peerName: ')[1];
+    
+    if (newPeerId !== myPeerId) {
+      const peerConnection = new RTCPeerConnection();
+      const gumStream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+      
+      for (const track of gumStream.getTracks()) {
+        peerConnection.addTrack(track);
+      }
+      
+      try {
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        socketRef.current?.send(JSON.stringify({
+          "type": "offer",
+          "from": myPeerId,
+          "to": newPeerId,
+          "roomId": data.roomId,
+          "sdp": offer.sdp
+        }));
+      } catch (error) {
+        console.error("Error creating offer:", error);
+      }
+    }
+  }
   
   async function handleConnection () {
     console.log(`Called handleConnection function`);
     const socket = new WebSocket("ws://localhost:8080");
     socketRef.current = socket;
-    socket.onmessage = (event: any) => {
-      console.log(event.data);
-    }
     socket.addEventListener("open", () => {
       console.log(`WebSocket connection opened`);
       const message = JSON.stringify({
@@ -23,11 +75,29 @@ export default function Home () {
       })
       socket.send(message);
     })
-    socket.onmessage = (event: any) => {
+    
+    socket.onmessage = async (event: any) => {
       const data = JSON.parse(event.data);
+      console.log("Received message:", data);
+      
       if (data.type === "connection") {
         setMyPeerId(data.value);
         console.log(`My peer ID: ${data.value}`);
+      } else if (data.type === "JoinRequest") {
+        const room = data.roomInfo?.find((r: any) => r.roomId === data.roomId);
+        if (room && room.peers && room.peers.length > 0) {
+          for (const peer of room.peers) {
+            if (peer.peerId !== myPeerId) {
+              await handleNewPeer({ value: `peerId: ${peer.peerId}, peerName: ${peer.peerName}`, roomId: data.roomId });
+            }
+          }
+        }
+      } else if (data.type === "offer") {
+        await handleIncomingOffer(data);
+      } else if (data.type === "answer") {
+        await handleIncomingAnswer(data);
+      } else if (data.type === "new-peer") {
+        await handleNewPeer(data);
       }
     }
   }
@@ -38,18 +108,17 @@ export default function Home () {
       console.log("Socket not connected. Please connect first.");
       return;
     }
+    const roomId = "ROOM123";
+    setCurrentRoomId(roomId);
     console.log(1);
     const message = JSON.stringify({
       "type": "join", 
-      "roomId": "ROOM123",
+      "roomId": roomId,
       "peerId": myPeerId,
       "name": "Sarthak"
     })
     console.log(2);
     socketRef.current.send(message);
-    socketRef.current.onmessage = (event: any) => {
-      console.log(event.data);
-    }
     console.log(3);
   }
 
@@ -58,44 +127,15 @@ export default function Home () {
       console.log("Socket not connected. Please connect first.");
       return;
     }
+    setCurrentRoomId(roomId);
     console.log(1);
     const message = JSON.stringify({
       "type": "join", 
-      "roomId": `${roomId}`,
+      "roomId": roomId,
       "peerId": myPeerId,
       "name": "Aarav"
     })
     socketRef.current.send(message);
-    socketRef.current.onmessage = async (event: any) => {
-      console.log(event.data);
-      const parsedData = JSON.parse(event.data);
-      if(parsedData.type === "new-peer"){
-        parsedData.roomInfo[0].peers.forEach( async(peer: any) => {
-          const peerConnection = new RTCPeerConnection();
-          const gumStream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: true,
-          });
-          for (const track of gumStream.getTracks()) {
-            peerConnection.addTrack(track);
-            peerConnection
-            .createOffer()
-            .then((offer) => peerConnection.setLocalDescription(offer))
-            .then(() => {
-              socketRef.current?.send(JSON.stringify({
-                "type": "offer",
-                "from": myPeerId,
-                "to": peer.peerId,
-                "sdp": `${peerConnection.localDescription?.sdp}`
-              }));
-            })
-            .catch((reason) => {
-              console.log(reason);
-            });
-          }
-        })
-      }
-    }
   }
   return (
     <div className="gap-2 flex">

@@ -76,20 +76,32 @@ Bun.serve({
                                 peerId: msg.peerId,
                                 peerName: msg.name
                             });
+                            
+                            ws.send(JSON.stringify({
+                                "type": "JoinRequest",
+                                "value": "Joined room",
+                                "roomId": msg.roomId,
+                                "roomInfo": rooms
+                            }));
+                            
                             existingRoom.peers.forEach(async (peer)=>{
-                                peer.peerSocket.send(JSON.stringify({
-                                    "type": "new-peer",
-                                    "value": `peerId: ${msg.peerId}, peerName: ${msg.name}`,
-                                    "roomId": `${msg.roomId}`,
-                                    "roomInfo": rooms
-                                }))
+                                if(peer.peerId !== msg.peerId) {
+                                    peer.peerSocket.send(JSON.stringify({
+                                        "type": "new-peer",
+                                        "value": `peerId: ${msg.peerId}, peerName: ${msg.name}`,
+                                        "roomId": `${msg.roomId}`,
+                                        "roomInfo": rooms
+                                    }))
+                                }
                             })
                         }
                     }
                 }
                 if(msg.type === "offer"){
                     const targetPeerId = msg.to;
-                    for(const room of rooms){
+                    const roomId = msg.roomId;
+                    const room = rooms.find(r => r.roomId === roomId);
+                    if(room){
                         const targetPeer = room.peers.find(peer => peer.peerId === targetPeerId);
                         if(targetPeer){
                             targetPeer.peerSocket.send(JSON.stringify({
@@ -97,7 +109,21 @@ Bun.serve({
                                 "from": msg.from,
                                 "sdp": msg.sdp
                             }));
-                            break;
+                        }
+                    }
+                }
+                if(msg.type === "answer"){
+                    const targetPeerId = msg.to;
+                    const roomId = msg.roomId;
+                    const room = rooms.find(r => r.roomId === roomId);
+                    if(room){
+                        const targetPeer = room.peers.find(peer => peer.peerId === targetPeerId);
+                        if(targetPeer){
+                            targetPeer.peerSocket.send(JSON.stringify({
+                                "type": "answer",
+                                "from": msg.from,
+                                "sdp": msg.sdp
+                            }));
                         }
                     }
                 }
