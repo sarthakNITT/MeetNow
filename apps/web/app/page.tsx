@@ -5,6 +5,7 @@ export default function Home () {
   const [roomId, setRoomId] = useState("");
   const [myPeerId, setMyPeerId] = useState("");
   const [currentRoomId, setCurrentRoomId] = useState("");
+  const [chat, setChat] = useState("");
   
   const socketRef = useRef<WebSocket | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
@@ -17,7 +18,6 @@ export default function Home () {
       peerConnection.addTrack(track);
     }
     
-    // Handle ICE candidates
     peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
         socketRef.current?.send(JSON.stringify({
@@ -72,7 +72,6 @@ export default function Home () {
         peerConnection.addTrack(track);
       }
       
-      // Handle ICE candidates
       peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
           socketRef.current?.send(JSON.stringify({
@@ -138,6 +137,10 @@ export default function Home () {
         await handleIncomingIceCandidate(data);
       } else if (data.type === "new-peer") {
         await handleNewPeer(data);
+      } else if(data.type === "chat"){
+        await handleChat(data);
+      } else if(data.type === "peer-left"){
+        console.log(`PeerId: ${data.peerId} left the room`);
       }
     }
   }
@@ -177,12 +180,39 @@ export default function Home () {
     })
     socketRef.current.send(message);
   }
+
+  async function handleChat (data: any) {
+    const message = JSON.stringify({
+      "type": "chat",
+      "value": `${chat}`,
+      "roomId": `${roomId}`,
+      "sendFrom": `${myPeerId}`
+    })
+    socketRef.current?.send(message);
+    console.log(data.value);
+  }
+
+  async function handleLeaveRoom () {
+    const message = JSON.stringify({
+      "type": "leave",
+      "peerId": `${myPeerId}`,
+      "roomId": `${currentRoomId}`
+    })
+    socketRef.current?.send(message);
+    try {
+      peerConnectionRef.current?.close();
+    } catch (e) {}
+    peerConnectionRef.current = null;
+  }
   return (
     <div className="gap-2 flex">
       <button className="border-[1px] p-2 rounded" onClick={handleConnection}>Click to connect to ws server</button>
       <button className="border-[1px] p-2 rounded" onClick={handleCreateRoom}>Click to create room</button>
       <input className="border-[1px] p-2 rounded" placeholder="Enter room id" value={roomId} onChange={(e)=>setRoomId(e.target.value)} type="text" />
       <button className="border-[1px] p-2 rounded" onClick={handleJoinRoom}>Click to join room</button>
+      <input className="border-[1px] p-2 rounded" placeholder="Enter chat" value={chat} onChange={(e)=>setChat(e.target.value)} type="text" />
+      <button className="border-[1px] p-2 rounded" onClick={handleChat}>Send Chat</button>
+      <button className="border-[1px] p-2 rounded" onClick={handleLeaveRoom}>Leave Room</button>
     </div>
   )
 }

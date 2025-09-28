@@ -4,6 +4,11 @@ interface roomInterface {
         peerSocket: any,
         peerId: string,
         peerName: string
+    }[],
+    messages?: {
+        from: string,
+        text: string,
+        ts: number
     }[]
 }
 
@@ -142,6 +147,52 @@ Bun.serve({
                         }
                     }
                 }
+                if(msg.type === "chat"){
+                    const message = JSON.stringify({
+                        "type": "chat",
+                        "value": `${msg.value}`,
+                        "roomId": `${msg.roomId}`,
+                        "sendFrom": `${msg.sendFrom}`
+                    })
+                    const room = rooms.find((e: any) => e.roomId === msg.roomId)
+                    room?.messages?.push({
+                        text: msg.value,
+                        from: msg.sendFrom,
+                        ts: Date.now()
+                    })
+                    if(room && room.peers && room.peers.length > 0){
+                        for(const peer of room.peers){
+                            peer.peerSocket.send(message)
+                        }
+                    }
+                }
+                if(msg.type === "leave"){
+                    const room = rooms.find((e: any) => e.roomId === msg.roomId);
+                    if(room){
+                        room.peers = room.peers.filter((e: any) => e.peerId !== msg.peerId);
+                    }
+                    if(room?.peers.length === 0){
+                        console.log(`Room ${msg.roomId} is empty, closing the room.`);
+                        rooms = rooms.filter((r) => r.roomId !== msg.roomId);
+                        try {
+                            ws.close();
+                        } catch (error) {
+                            console.log(`Error while closing room: ${error}`);
+                            
+                        }
+                    }else {
+                        const message = JSON.stringify({
+                            "type": "peer-left",
+                            "peerId": `${msg.peerId}`
+                        })
+                        if(room){
+                            for(const peer of room?.peers){
+                                peer.peerSocket.send(message);
+                            }
+                        }
+                    }
+
+                }
             } catch (error) {
                 console.log(`JSON Parse error: ${error instanceof Error ? error.message : 'Unknown error'}`);
                 console.log(`Received message: ${message}`);
@@ -149,6 +200,24 @@ Bun.serve({
                     "type": "error",
                     "value": "Invalid JSON message format"
                 }));
+            }
+        }
+        ,
+        close (ws) {
+            try {
+                for (const room of rooms) {
+                    const before = room.peers.length;
+                    room.peers = room.peers.filter((p: any) => p.peerSocket !== ws);
+                    if (room.peers.length !== before) {
+                        const msg = JSON.stringify({ "type": "peer-left", "peerId": "unknown" });
+                        for (const peer of room.peers) {
+                            try { peer.peerSocket.send(msg); } catch {}
+                        }
+                    }
+                }
+                rooms = rooms.filter((r) => r.peers.length > 0);
+            } catch (e) {
+                console.log(`Error on ws close: ${e}`);
             }
         }
     }
