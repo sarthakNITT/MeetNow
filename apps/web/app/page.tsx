@@ -16,6 +16,20 @@ export default function Home () {
     for (const track of gumStream.getTracks()) {
       peerConnection.addTrack(track);
     }
+    
+    // Handle ICE candidates
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        socketRef.current?.send(JSON.stringify({
+          type: "ice-candidate",
+          from: myPeerId,
+          to: data.from,
+          roomId: currentRoomId,
+          candidate: event.candidate
+        }));
+      }
+    };
+    
     await peerConnection.setRemoteDescription({ type: 'offer', sdp: data.sdp });
     const answer = await peerConnection.createAnswer();
     await peerConnection.setLocalDescription(answer);
@@ -31,6 +45,16 @@ export default function Home () {
   async function handleIncomingAnswer (data: any) {
     await peerConnectionRef.current?.setRemoteDescription({ type: 'answer', sdp: data.sdp })
   }
+
+  async function handleIncomingIceCandidate(data: any) {
+    if (peerConnectionRef.current && data.candidate) {
+      try {
+        await peerConnectionRef.current.addIceCandidate(data.candidate);
+      } catch (error) {
+        console.error("Error adding ICE candidate:", error);
+      }
+    }
+  }
   
   async function handleNewPeer(data: any) {
     const newPeerId = data.value.split('peerId: ')[1].split(',')[0];
@@ -38,6 +62,7 @@ export default function Home () {
     
     if (newPeerId !== myPeerId) {
       const peerConnection = new RTCPeerConnection();
+      peerConnectionRef.current = peerConnection;
       const gumStream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: true,
@@ -46,6 +71,19 @@ export default function Home () {
       for (const track of gumStream.getTracks()) {
         peerConnection.addTrack(track);
       }
+      
+      // Handle ICE candidates
+      peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+          socketRef.current?.send(JSON.stringify({
+            type: "ice-candidate",
+            from: myPeerId,
+            to: newPeerId,
+            roomId: data.roomId,
+            candidate: event.candidate
+          }));
+        }
+      };
       
       try {
         const offer = await peerConnection.createOffer();
@@ -96,6 +134,8 @@ export default function Home () {
         await handleIncomingOffer(data);
       } else if (data.type === "answer") {
         await handleIncomingAnswer(data);
+      } else if (data.type === "ice-candidate") {
+        await handleIncomingIceCandidate(data);
       } else if (data.type === "new-peer") {
         await handleNewPeer(data);
       }

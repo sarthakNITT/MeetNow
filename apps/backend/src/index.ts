@@ -127,6 +127,21 @@ Bun.serve({
                         }
                     }
                 }
+                if(msg.type === "ice-candidate"){
+                    const targetPeerId = msg.to;
+                    const roomId = msg.roomId;
+                    const room = rooms.find(r => r.roomId === roomId);
+                    if(room){
+                        const targetPeer = room.peers.find(peer => peer.peerId === targetPeerId);
+                        if(targetPeer){
+                            targetPeer.peerSocket.send(JSON.stringify({
+                                "type": "ice-candidate",
+                                "from": msg.from,
+                                "candidate": msg.candidate
+                            }));
+                        }
+                    }
+                }
             } catch (error) {
                 console.log(`JSON Parse error: ${error instanceof Error ? error.message : 'Unknown error'}`);
                 console.log(`Received message: ${message}`);
